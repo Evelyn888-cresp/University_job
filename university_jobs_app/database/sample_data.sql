@@ -1,0 +1,32 @@
+-- Sample data (30 records)
+
+INSERT INTO student (name, last_name, email, academic_program) VALUES ('Evelyn', 'Crespo', 'evelyn.crespo@example.com', 'Computer Science');
+INSERT INTO student (name, last_name, email, academic_program) VALUES ('Daniel', 'Torres', 'daniel.torres@example.com', 'Software Engineering');
+INSERT INTO student (name, last_name, email, academic_program) VALUES ('Sofia', 'Mendoza', 'sofia.mendoza@example.com', 'Data Science');
+INSERT INTO company (name, email, phone) VALUES ('TechSolutions', 'contact@techsolutions.com', '0991234567');
+INSERT INTO company (name, email, phone) VALUES ('DataWorld', 'info@dataworld.com', '0987654321');
+INSERT INTO skill (name, description) VALUES ('Python', 'Programming language');
+INSERT INTO skill (name, description) VALUES ('SQL', 'Database query language');
+INSERT INTO skill (name, description) VALUES ('Machine Learning', 'Development of predictive models');
+INSERT INTO skill (name, description) VALUES ('Java', 'Object-oriented programming language');
+INSERT INTO skill (name, description) VALUES ('Data Analysis', 'Data processing and interpretation');
+INSERT INTO job_offer (company_id, position, description, location, requirements) VALUES (1, 'Junior Python Developer', 'Develop and maintain software applications.', 'Quito', 'Python, SQL');
+INSERT INTO job_offer (company_id, position, description, location, requirements) VALUES (1, 'Software Engineer', 'Design and develop software solutions.', 'Remote', 'Java, SQL');
+INSERT INTO job_offer (company_id, position, description, location, requirements) VALUES (2, 'Data Analyst', 'Analyze datasets and generate reports.', 'Guayaquil', 'Python, Data Analysis');
+INSERT INTO student_skill (student_id, skill_id) VALUES (1, 1);
+INSERT INTO student_skill (student_id, skill_id) VALUES (3, 1);
+INSERT INTO student_skill (student_id, skill_id) VALUES (1, 2);
+INSERT INTO student_skill (student_id, skill_id) VALUES (2, 2);
+INSERT INTO student_skill (student_id, skill_id) VALUES (1, 3);
+INSERT INTO student_skill (student_id, skill_id) VALUES (3, 3);
+INSERT INTO student_skill (student_id, skill_id) VALUES (2, 4);
+INSERT INTO student_skill (student_id, skill_id) VALUES (3, 5);
+INSERT INTO job_offer_skill (job_offer_id, skill_id) VALUES (1, 1);
+INSERT INTO job_offer_skill (job_offer_id, skill_id) VALUES (3, 1);
+INSERT INTO job_offer_skill (job_offer_id, skill_id) VALUES (1, 2);
+INSERT INTO job_offer_skill (job_offer_id, skill_id) VALUES (2, 2);
+INSERT INTO job_offer_skill (job_offer_id, skill_id) VALUES (2, 4);
+INSERT INTO job_offer_skill (job_offer_id, skill_id) VALUES (3, 5);
+INSERT INTO application (student_id, job_offer_id, application_date, status, comments) VALUES (1, 1, '2026-11-10', 'Under Review', 'Application under evaluation');
+INSERT INTO application (student_id, job_offer_id, application_date, status, comments) VALUES (2, 2, '2026-11-11', 'Pending', 'Waiting for review');
+INSERT INTO application (student_id, job_offer_id, application_date, status, comments) VALUES (3, 3, '2026-11-12', 'Accepted', 'Candidate selected');
