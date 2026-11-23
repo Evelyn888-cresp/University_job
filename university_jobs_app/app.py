@@ -7,6 +7,7 @@ The desktop GUI (gui.py) uses this API to read and change the data.
 Run with:  python app.py   ->  http://localhost:5000
 """
 import datetime
+import decimal
 
 import mysql.connector
 from mysql.connector import errorcode
@@ -77,11 +78,15 @@ def get_connection():
 
 
 def to_json(row):
-    """Convert dates to text so they can be sent as JSON."""
-    return {
-        key: value.isoformat() if isinstance(value, (datetime.date, datetime.datetime)) else value
-        for key, value in row.items()
-    }
+    """Convert dates to text and decimals to numbers so they can be sent as JSON."""
+    result = {}
+    for key, value in row.items():
+        if isinstance(value, (datetime.date, datetime.datetime)):
+            value = value.isoformat()
+        elif isinstance(value, decimal.Decimal):
+            value = float(value)
+        result[key] = value
+    return result
 
 
 def run_query(sql, params=(), fetch="all"):
@@ -219,30 +224,127 @@ def company_job_offers(company_id):
     return jsonify(rows)
 
 
-@app.route("/api/job-offers/<int:job_offer_id>/skills", methods=["GET"])
-def job_offer_skills(job_offer_id):
-    """Skills required by a job offer."""
+# ------------------------------------------------------------
+# Skills of students and job offers (associative tables)
+#   student_skill    ->  /api/students/<id>/skills
+#   job_offer_skill  ->  /api/job-offers/<id>/skills
+# ------------------------------------------------------------
+SKILL_LINKS = {
+    "students": {"table": "student_skill", "owner_key": "student_id", "owner_table": "student"},
+    "job-offers": {"table": "job_offer_skill", "owner_key": "job_offer_id", "owner_table": "job_offer"},
+}
+
+
+def linked_skills(link, owner_id):
+    """Skill names linked to one student or one job offer (INNER JOIN)."""
+    return run_query(
+        f"""SELECT sk.skill_id, sk.name
+            FROM {link['table']} AS l
+            INNER JOIN skill AS sk ON l.skill_id = sk.skill_id
+            WHERE l.{link['owner_key']} = %s
+            ORDER BY sk.name""",
+        (owner_id,),
+    )
+
+
+@app.route("/api/<owner>/<int:owner_id>/skills", methods=["GET"])
+def list_linked_skills(owner, owner_id):
+    """READ the skills of a student or the skills required by a job offer."""
+    link = SKILL_LINKS.get(owner)
+    if not link:
+        return error(404, "Resource not found.")
+    return jsonify(linked_skills(link, owner_id))
+
+
+@app.route("/api/<owner>/<int:owner_id>/skills", methods=["POST"])
+def add_linked_skill(owner, owner_id):
+    """CREATE: assign a skill to a student or to a job offer."""
+    link = SKILL_LINKS.get(owner)
+    if not link:
+        return error(404, "Resource not found.")
+    data = request.get_json(silent=True) or {}
+    if data.get("skill_id") in (None, ""):
+        return error(400, "Missing required fields: skill_id")
+    exists = run_query(
+        f"SELECT {link['owner_key']} FROM {link['owner_table']} WHERE {link['owner_key']} = %s",
+        (owner_id,), fetch="one",
+    )
+    if exists is None:
+        return error(404, f"{link['owner_table']} {owner_id} does not exist.")
+    run_query(
+        f"INSERT INTO {link['table']} ({link['owner_key']}, skill_id) VALUES (%s, %s)",
+        (owner_id, data["skill_id"]), fetch=None,
+    )
+    return jsonify(linked_skills(link, owner_id)), 201
+
+
+@app.route("/api/<owner>/<int:owner_id>/skills/<int:skill_id>", methods=["DELETE"])
+def remove_linked_skill(owner, owner_id, skill_id):
+    """DELETE: remove a skill from a student or from a job offer."""
+    link = SKILL_LINKS.get(owner)
+    if not link:
+        return error(404, "Resource not found.")
+    _, deleted = run_query(
+        f"DELETE FROM {link['table']} WHERE {link['owner_key']} = %s AND skill_id = %s",
+        (owner_id, skill_id), fetch=None,
+    )
+    if deleted == 0:
+        return error(404, "That skill is not assigned.")
+    return jsonify({"message": "Skill removed."})
+
+
+@app.route("/api/job-offers/<int:job_offer_id>/candidates", methods=["GET"])
+def job_offer_candidates(job_offer_id):
+    """Students who have at least one skill required by a job offer,
+    ordered by the number of matching skills."""
     rows = run_query(
-        """SELECT sk.skill_id, sk.name
-           FROM job_offer_skill AS js
-           INNER JOIN skill AS sk ON js.skill_id = sk.skill_id
+        """SELECT s.student_id,
+                  CONCAT(s.name, ' ', s.last_name) AS student,
+                  COUNT(*) AS matching_skills,
+                  (SELECT COUNT(*) FROM job_offer_skill WHERE job_offer_id = %s) AS required_skills,
+                  GROUP_CONCAT(sk.name ORDER BY sk.name SEPARATOR ', ') AS skills
+           FROM student AS s
+           INNER JOIN student_skill AS ss ON s.student_id = ss.student_id
+           INNER JOIN job_offer_skill AS js ON ss.skill_id = js.skill_id
+           INNER JOIN skill AS sk ON ss.skill_id = sk.skill_id
            WHERE js.job_offer_id = %s
-           ORDER BY sk.skill_id""",
-        (job_offer_id,),
+           GROUP BY s.student_id, s.name, s.last_name
+           ORDER BY matching_skills DESC, s.student_id""",
+        (job_offer_id, job_offer_id),
+    )
+    # For each candidate, list the required skills the student does not have yet
+    required = [skill["name"] for skill in linked_skills(SKILL_LINKS["job-offers"], job_offer_id)]
+    for row in rows:
+        has = row["skills"].split(", ")
+        row["missing"] = ", ".join(name for name in required if name not in has)
+    return jsonify(rows)
+
+
+@app.route("/api/skills/<int:skill_id>/students", methods=["GET"])
+def skill_students(skill_id):
+    """Students who have a skill (student_skill + student)."""
+    rows = run_query(
+        """SELECT st.student_id, CONCAT(st.name, ' ', st.last_name) AS student
+           FROM student_skill AS ss
+           INNER JOIN student AS st ON ss.student_id = st.student_id
+           WHERE ss.skill_id = %s
+           ORDER BY st.student_id""",
+        (skill_id,),
     )
     return jsonify(rows)
 
 
-@app.route("/api/students/<int:student_id>/skills", methods=["GET"])
-def student_skills(student_id):
-    """Skills of a student."""
+@app.route("/api/skills/<int:skill_id>/job-offers", methods=["GET"])
+def skill_job_offers(skill_id):
+    """Job offers that require a skill (job_offer_skill + job_offer + company)."""
     rows = run_query(
-        """SELECT sk.skill_id, sk.name
-           FROM student_skill AS ss
-           INNER JOIN skill AS sk ON ss.skill_id = sk.skill_id
-           WHERE ss.student_id = %s
-           ORDER BY sk.skill_id""",
-        (student_id,),
+        """SELECT jo.job_offer_id, jo.position, c.name AS company
+           FROM job_offer_skill AS js
+           INNER JOIN job_offer AS jo ON js.job_offer_id = jo.job_offer_id
+           INNER JOIN company AS c ON jo.company_id = c.company_id
+           WHERE js.skill_id = %s
+           ORDER BY jo.job_offer_id""",
+        (skill_id,),
     )
     return jsonify(rows)
 
@@ -275,6 +377,20 @@ def application_details():
            ORDER BY a.application_id"""
     )
     return jsonify(rows)
+
+
+@app.route("/api/summary", methods=["GET"])
+def summary():
+    """Number of records in the main tables (used by the GUI header)."""
+    row = run_query(
+        """SELECT (SELECT COUNT(*) FROM student) AS students,
+                  (SELECT COUNT(*) FROM company) AS companies,
+                  (SELECT COUNT(*) FROM job_offer) AS job_offers,
+                  (SELECT COUNT(*) FROM application) AS applications,
+                  (SELECT COUNT(*) FROM skill) AS skills""",
+        fetch="one",
+    )
+    return jsonify(row)
 
 
 @app.route("/")
